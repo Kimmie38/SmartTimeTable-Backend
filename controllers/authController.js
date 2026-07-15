@@ -38,22 +38,49 @@ const registerStudent = asyncHandler(async (req, res) => {
     throw new Error("This matric number is already registered");
   }
 
-  const emailExists = await User.findOne({ email: email.toLowerCase() });
-  if (emailExists) {
-    res.status(400);
-    throw new Error("This email is already registered");
-  }
+  const existingUser = await User.findOne({
+    email: email.toLowerCase(),
+  }).select("+password");
 
-  const student = await User.create({
-    fullName,
-    email,
-    matricNumber,
-    department: department._id,
-    level,
-    semester,
-    password,
-    role: "student",
-  });
+  let student;
+
+  if (existingUser) {
+    // This email already belongs to an account (most likely the admin
+    // account). If it's already a student too, that's a real duplicate.
+    if (existingUser.isStudent) {
+      res.status(400);
+      throw new Error("This email is already registered as a student");
+    }
+
+    // Otherwise, this is a promotion — same person adding the student role
+    // to their existing (admin) account. Require the correct existing
+    // password to prove it's actually them, not someone guessing an email.
+    if (!(await existingUser.matchPassword(password))) {
+      res.status(401);
+      throw new Error(
+        "An account with this email already exists. Enter its correct password to add student access to it."
+      );
+    }
+
+    existingUser.isStudent = true;
+    existingUser.matricNumber = matricNumber;
+    existingUser.department = department._id;
+    existingUser.level = level;
+    existingUser.semester = semester;
+    existingUser.fullName = fullName || existingUser.fullName;
+    student = await existingUser.save();
+  } else {
+    student = await User.create({
+      fullName,
+      email,
+      matricNumber,
+      department: department._id,
+      level,
+      semester,
+      password,
+      isStudent: true,
+    });
+  }
 
   res.status(201).json({
     success: true,
@@ -65,7 +92,9 @@ const registerStudent = asyncHandler(async (req, res) => {
       department: department.name,
       level: student.level,
       semester: student.semester,
-      token: generateToken(student._id, student.role),
+      isStudent: student.isStudent,
+      isAdmin: student.isAdmin,
+      token: generateToken(student._id),
     },
   });
 });
@@ -84,7 +113,7 @@ const loginStudent = asyncHandler(async (req, res) => {
 
   const student = await User.findOne({
     matricNumber: matricNumber.toUpperCase(),
-    role: "student",
+    isStudent: true,
   })
     .select("+password")
     .populate("department");
@@ -104,7 +133,9 @@ const loginStudent = asyncHandler(async (req, res) => {
       department: student.department.name,
       level: student.level,
       semester: student.semester,
-      token: generateToken(student._id, student.role),
+      isStudent: student.isStudent,
+      isAdmin: student.isAdmin,
+      token: generateToken(student._id),
     },
   });
 });

@@ -2,11 +2,14 @@ const asyncHandler = require("express-async-handler");
 const User = require("../models/User");
 const generateToken = require("../utils/generateToken");
 
-// @desc    Register a new admin
+// @desc    Register the admin
 // @route   POST /api/admin/auth/register
 // @access  Public, but locked behind ADMIN_REGISTRATION_KEY
-// Admins don't need matricNumber, department, level, or semester —
-// those are student-only fields (see User model).
+// Only one account on the whole system may hold admin access. If the email
+// used here already belongs to an existing (student) account, admin access
+// is added to that same account — the person logs in exactly the same way
+// as before (matric number for student screens, this same email+password
+// combo for admin screens) instead of getting a second, separate identity.
 const registerAdmin = asyncHandler(async (req, res) => {
   const { fullName, email, password, registrationKey } = req.body;
 
@@ -15,9 +18,9 @@ const registerAdmin = asyncHandler(async (req, res) => {
     throw new Error("Invalid admin registration key");
   }
 
-  // Only one admin account is allowed on the system. Once it exists,
+  // Only one admin account is allowed on the system. Once one exists,
   // this route is permanently locked — even with the correct key.
-  const adminAlreadyExists = await User.findOne({ role: "admin" });
+  const adminAlreadyExists = await User.findOne({ isAdmin: true });
   if (adminAlreadyExists) {
     res.status(403);
     throw new Error(
@@ -30,23 +33,40 @@ const registerAdmin = asyncHandler(async (req, res) => {
     throw new Error("Please fill in all required fields");
   }
 
-  const emailExists = await User.findOne({ email: email.toLowerCase() });
-  if (emailExists) {
-    res.status(400);
-    throw new Error("This email is already registered");
+  const existingUser = await User.findOne({
+    email: email.toLowerCase(),
+  }).select("+password");
+
+  let admin;
+
+  if (existingUser) {
+    // Same email as an existing (student) account — this is a promotion,
+    // not a brand new identity. Require the correct existing password to
+    // prove it's actually the account owner making this request.
+    if (!(await existingUser.matchPassword(password))) {
+      res.status(401);
+      throw new Error(
+        "An account with this email already exists. Enter its correct password to add admin access to it."
+      );
+    }
+
+    existingUser.isAdmin = true;
+    existingUser.fullName = fullName || existingUser.fullName;
+    admin = await existingUser.save();
+  } else {
+    // Brand new account, admin-only. Still needs a unique matricNumber
+    // value since that field is unique-indexed — this placeholder is
+    // never used for anything since this account has no student access.
+    const placeholderMatric = `ADMIN-${Date.now()}`;
+
+    admin = await User.create({
+      fullName,
+      email,
+      password,
+      isAdmin: true,
+      matricNumber: placeholderMatric,
+    });
   }
-
-  // Admins still need a unique matricNumber value in the DB since the field
-  // is unique-indexed; we generate a placeholder since it's meaningless for admins.
-  const placeholderMatric = `ADMIN-${Date.now()}`;
-
-  const admin = await User.create({
-    fullName,
-    email,
-    password,
-    role: "admin",
-    matricNumber: placeholderMatric,
-  });
 
   res.status(201).json({
     success: true,
@@ -54,16 +74,18 @@ const registerAdmin = asyncHandler(async (req, res) => {
       _id: admin._id,
       fullName: admin.fullName,
       email: admin.email,
-      role: admin.role,
-      token: generateToken(admin._id, admin.role),
+      isStudent: admin.isStudent,
+      isAdmin: admin.isAdmin,
+      token: generateToken(admin._id),
     },
   });
 });
 
-// @desc    Log in an admin
+// @desc    Log in as admin
 // @route   POST /api/admin/auth/login
 // @access  Public
-// Admins log in with email + password (unlike students, who use matricNumber)
+// Admin login is by email + password (students use matricNumber instead) —
+// this works the same whether the account is admin-only or also a student.
 const loginAdmin = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
@@ -74,7 +96,7 @@ const loginAdmin = asyncHandler(async (req, res) => {
 
   const admin = await User.findOne({
     email: email.toLowerCase(),
-    role: "admin",
+    isAdmin: true,
   }).select("+password");
 
   if (!admin || !(await admin.matchPassword(password))) {
@@ -88,8 +110,9 @@ const loginAdmin = asyncHandler(async (req, res) => {
       _id: admin._id,
       fullName: admin.fullName,
       email: admin.email,
-      role: admin.role,
-      token: generateToken(admin._id, admin.role),
+      isStudent: admin.isStudent,
+      isAdmin: admin.isAdmin,
+      token: generateToken(admin._id),
     },
   });
 });

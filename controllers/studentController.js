@@ -177,6 +177,8 @@ const getProfile = asyncHandler(async (req, res) => {
       department: student.department.name,
       level: student.level,
       semester: student.semester,
+      isStudent: student.isStudent,
+      isAdmin: student.isAdmin,
     },
   });
 });

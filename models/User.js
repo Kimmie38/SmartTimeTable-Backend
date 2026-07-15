@@ -21,22 +21,28 @@ const userSchema = new mongoose.Schema(
       minlength: 6,
       select: false, // never returned by default in queries
     },
-    role: {
-      type: String,
-      enum: ["student", "admin"],
-      default: "student",
+    // A single account can be a student, the admin, or both at once.
+    // These are independent flags rather than one exclusive "role" —
+    // that's what makes it possible for one login to hold both roles.
+    isStudent: {
+      type: Boolean,
+      default: false,
+    },
+    isAdmin: {
+      type: Boolean,
+      default: false,
     },
     department: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Department",
       required: function () {
-        return this.role === "student";
+        return this.isStudent === true;
       },
     },
     level: {
       type: Number, // e.g. 100, 200, 300, 400
       required: function () {
-        return this.role === "student";
+        return this.isStudent === true;
       },
     },
     matricNumber: {
@@ -44,13 +50,15 @@ const userSchema = new mongoose.Schema(
       trim: true,
       uppercase: true,
       required: [true, "Matric number is required"],
-      unique: true, // students log in with this, so it must be unique
+      unique: true, // students log in with this, so it must be unique.
+      // Admin-only accounts get an auto-generated placeholder value —
+      // see adminAuthController — so this stays satisfied either way.
     },
     semester: {
       type: String,
       enum: ["First", "Second"],
       required: function () {
-        return this.role === "student";
+        return this.isStudent === true;
       },
     },
     fcmToken: {

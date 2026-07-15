@@ -34,23 +34,24 @@ const protect = asyncHandler(async (req, res, next) => {
   }
 });
 
-// Restricts a route to students only (kept here for clarity / future-proofing
-// since the admin side will reuse the same User model with role "admin")
+// Restricts a route to accounts with the student role enabled.
+// Because roles are independent flags now, this doesn't care whether the
+// account ALSO has admin — it just checks isStudent is true.
 const studentOnly = (req, res, next) => {
-  if (req.user && req.user.role === "student") {
+  if (req.user && req.user.isStudent) {
     return next();
   }
   res.status(403);
-  throw new Error("Access denied: student accounts only");
+  throw new Error("Access denied: this account does not have student access");
 };
 
-// Restricts a route to admins only
+// Restricts a route to accounts with the admin role enabled.
 const adminOnly = (req, res, next) => {
-  if (req.user && req.user.role === "admin") {
+  if (req.user && req.user.isAdmin) {
     return next();
   }
   res.status(403);
-  throw new Error("Access denied: admin accounts only");
+  throw new Error("Access denied: this account does not have admin access");
 };
 
 module.exports = { protect, studentOnly, adminOnly };
