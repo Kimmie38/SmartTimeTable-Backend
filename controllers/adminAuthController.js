@@ -84,24 +84,24 @@ const registerAdmin = asyncHandler(async (req, res) => {
 // @desc    Log in as admin
 // @route   POST /api/admin/auth/login
 // @access  Public
-// Admin login is by email + password (students use matricNumber instead) —
+// Admin login is by matricNumber + password (students use matricNumber instead) —
 // this works the same whether the account is admin-only or also a student.
 const loginAdmin = asyncHandler(async (req, res) => {
-  const { email, password } = req.body;
+  const { matricNumber, password } = req.body;
 
-  if (!email || !password) {
+  if (!matricNumber || !password) {
     res.status(400);
-    throw new Error("Please provide email and password");
+    throw new Error("Please provide matric number and password");
   }
 
   const admin = await User.findOne({
-    email: email.toLowerCase(),
+    matricNumber: matricNumber.toUpperCase(),
     isAdmin: true,
   }).select("+password");
 
   if (!admin || !(await admin.matchPassword(password))) {
     res.status(401);
-    throw new Error("Invalid email or password");
+    throw new Error("Invalid matric number or password");
   }
 
   res.json({
