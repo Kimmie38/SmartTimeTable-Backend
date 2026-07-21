@@ -88,14 +88,21 @@ const registerAdmin = asyncHandler(async (req, res) => {
 // this works the same whether the account is admin-only or also a student.
 const loginAdmin = asyncHandler(async (req, res) => {
   const { matricNumber, password } = req.body;
+  const normalizedMatricNumber =
+    typeof matricNumber === "string" ? matricNumber.trim().toUpperCase() : "";
 
-  if (!matricNumber || !password) {
+  if (!normalizedMatricNumber || !password) {
     res.status(400);
     throw new Error("Please provide matric number and password");
   }
 
+  if (normalizedMatricNumber.includes("@")) {
+    res.status(400);
+    throw new Error("Please use your matric number, not your email address");
+  }
+
   const admin = await User.findOne({
-    matricNumber: matricNumber.toUpperCase(),
+    matricNumber: normalizedMatricNumber,
     isAdmin: true,
   }).select("+password");
 
