@@ -4,6 +4,7 @@ const Timetable = require("../models/Timetable");
 const History = require("../models/History");
 const TestExam = require("../models/TestExam");
 const { getFileTypeLabel } = require("../middleware/upload");
+const { sendPushNotifications, getStudentTokens } = require("../utils/push");
 
 /* ------------------------------ DEPARTMENTS ------------------------------ */
 
@@ -81,6 +82,14 @@ const createTimetableEntry = asyncHandler(async (req, res) => {
     semester,
     eventType,
   });
+
+  getStudentTokens({ department, level: entry.level, semester }).then((tokens) =>
+    sendPushNotifications(tokens, {
+      title: "New class added",
+      body: `${entry.courseCode} — ${entry.day} ${entry.startTime}-${entry.endTime}`,
+      data: { type: "timetable-created", id: entry._id.toString() },
+    })
+  );
 
   res.status(201).json({ success: true, data: entry });
 });
@@ -184,6 +193,18 @@ const updateTimetableStatus = asyncHandler(async (req, res) => {
   entry.status = status;
   await entry.save();
 
+  getStudentTokens({
+    department: entry.department,
+    level: entry.level,
+    semester: entry.semester,
+  }).then((tokens) =>
+    sendPushNotifications(tokens, {
+      title: `${entry.courseCode} is now ${status}`,
+      body: `${entry.courseTitle} — ${entry.day} ${entry.startTime}-${entry.endTime}`,
+      data: { type: "timetable-status", id: entry._id.toString(), status },
+    })
+  );
+
   res.json({ success: true, data: entry });
 });
 
@@ -237,6 +258,18 @@ const markTimetableComplete = asyncHandler(async (req, res) => {
   entry.status = "Pending";
   await entry.save();
 
+  getStudentTokens({
+    department: entry.department,
+    level: entry.level,
+    semester: entry.semester,
+  }).then((tokens) =>
+    sendPushNotifications(tokens, {
+      title: `${entry.courseCode} marked complete`,
+      body: attachment.url ? "Notes/attachment uploaded — check History." : "Check History for details.",
+      data: { type: "timetable-complete", id: historyRecord._id.toString() },
+    })
+  );
+
   res.status(201).json({ success: true, data: historyRecord });
 });
 
@@ -287,6 +320,14 @@ const createTestExam = asyncHandler(async (req, res) => {
     semester,
     instructions,
   });
+
+  getStudentTokens({ department, level: item.level, semester }).then((tokens) =>
+    sendPushNotifications(tokens, {
+      title: `New ${type.toLowerCase()} posted`,
+      body: `${item.courseCode} — ${new Date(item.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })} at ${item.startTime}`,
+      data: { type: "test-exam-created", id: item._id.toString() },
+    })
+  );
 
   res.status(201).json({ success: true, data: item });
 });
