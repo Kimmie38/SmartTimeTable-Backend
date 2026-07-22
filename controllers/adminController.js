@@ -7,10 +7,6 @@ const { getFileTypeLabel } = require("../middleware/upload");
 
 /* ------------------------------ DEPARTMENTS ------------------------------ */
 
-// @desc    Create a department (in practice you'll mostly just use the
-//          auto-created "Computer Science" one, but this exists for when
-//          more departments are added later)
-// @route   POST /api/admin/departments
 const createDepartment = asyncHandler(async (req, res) => {
   const { name, faculty, levels } = req.body;
 
@@ -38,9 +34,7 @@ const getDepartments = asyncHandler(async (req, res) => {
 
 /* ------------------------------ TIMETABLE ------------------------------ */
 
-// @desc    Create a timetable entry. This is the single most important
-//          write in the whole system — the moment this is saved, it shows
-//          up on the matching students' dashboard and weekly timetable.
+// @desc    Create a timetable entry, auto-scoped to the admin's own level
 // @route   POST /api/admin/timetable
 const createTimetableEntry = asyncHandler(async (req, res) => {
   const {
@@ -52,10 +46,12 @@ const createTimetableEntry = asyncHandler(async (req, res) => {
     startTime,
     endTime,
     department, // Department _id
-    level,
     semester,
     eventType,
   } = req.body;
+  // NOTE: `level` is intentionally NOT read from req.body anymore.
+  // An admin can only ever create entries for their own level — it's
+  // taken from their account, not from client input.
 
   if (
     !courseCode ||
@@ -66,7 +62,6 @@ const createTimetableEntry = asyncHandler(async (req, res) => {
     !startTime ||
     !endTime ||
     !department ||
-    !level ||
     !semester
   ) {
     res.status(400);
@@ -82,7 +77,7 @@ const createTimetableEntry = asyncHandler(async (req, res) => {
     startTime,
     endTime,
     department,
-    level,
+    level: req.user.adminLevel,
     semester,
     eventType,
   });
@@ -90,12 +85,11 @@ const createTimetableEntry = asyncHandler(async (req, res) => {
   res.status(201).json({ success: true, data: entry });
 });
 
-// @desc    List all timetable entries (optionally filtered by department/level/semester)
+// @desc    List timetable entries for the logged-in admin's own level only
 // @route   GET /api/admin/timetable
 const getAllTimetableEntries = asyncHandler(async (req, res) => {
-  const filter = {};
+  const filter = { level: req.user.adminLevel };
   if (req.query.department) filter.department = req.query.department;
-  if (req.query.level) filter.level = req.query.level;
   if (req.query.semester) filter.semester = req.query.semester;
   if (req.query.day) filter.day = req.query.day;
 
@@ -106,7 +100,7 @@ const getAllTimetableEntries = asyncHandler(async (req, res) => {
   res.json({ success: true, count: entries.length, data: entries });
 });
 
-// @desc    Edit a timetable entry
+// @desc    Edit a timetable entry (only if it belongs to the admin's own level)
 // @route   PUT /api/admin/timetable/:id
 const updateTimetableEntry = asyncHandler(async (req, res) => {
   const entry = await Timetable.findById(req.params.id);
@@ -116,6 +110,13 @@ const updateTimetableEntry = asyncHandler(async (req, res) => {
     throw new Error("Timetable entry not found");
   }
 
+  if (entry.level !== req.user.adminLevel) {
+    res.status(403);
+    throw new Error("You can only manage timetable entries for your own level");
+  }
+
+  // "level" is deliberately excluded — an admin can't move an entry to a
+  // different level than the one they manage.
   const editableFields = [
     "courseCode",
     "courseTitle",
@@ -125,7 +126,6 @@ const updateTimetableEntry = asyncHandler(async (req, res) => {
     "startTime",
     "endTime",
     "department",
-    "level",
     "semester",
     "eventType",
   ];
@@ -138,7 +138,7 @@ const updateTimetableEntry = asyncHandler(async (req, res) => {
   res.json({ success: true, data: updated });
 });
 
-// @desc    Delete a timetable entry
+// @desc    Delete a timetable entry (only if it belongs to the admin's own level)
 // @route   DELETE /api/admin/timetable/:id
 const deleteTimetableEntry = asyncHandler(async (req, res) => {
   const entry = await Timetable.findById(req.params.id);
@@ -146,6 +146,11 @@ const deleteTimetableEntry = asyncHandler(async (req, res) => {
   if (!entry) {
     res.status(404);
     throw new Error("Timetable entry not found");
+  }
+
+  if (entry.level !== req.user.adminLevel) {
+    res.status(403);
+    throw new Error("You can only manage timetable entries for your own level");
   }
 
   await entry.deleteOne();
@@ -171,6 +176,11 @@ const updateTimetableStatus = asyncHandler(async (req, res) => {
     throw new Error("Timetable entry not found");
   }
 
+  if (entry.level !== req.user.adminLevel) {
+    res.status(403);
+    throw new Error("You can only manage timetable entries for your own level");
+  }
+
   entry.status = status;
   await entry.save();
 
@@ -192,6 +202,11 @@ const markTimetableComplete = asyncHandler(async (req, res) => {
   if (!entry) {
     res.status(404);
     throw new Error("Timetable entry not found");
+  }
+
+  if (entry.level !== req.user.adminLevel) {
+    res.status(403);
+    throw new Error("You can only manage timetable entries for your own level");
   }
 
   let attachment = { url: null, fileType: null, fileName: null };
@@ -227,7 +242,7 @@ const markTimetableComplete = asyncHandler(async (req, res) => {
 
 /* ------------------------------ TESTS & EXAMS ------------------------------ */
 
-// @desc    Create a test/exam entry
+// @desc    Create a test/exam entry, auto-scoped to the admin's own level
 // @route   POST /api/admin/tests-exams
 const createTestExam = asyncHandler(async (req, res) => {
   const {
@@ -239,10 +254,10 @@ const createTestExam = asyncHandler(async (req, res) => {
     endTime,
     venue,
     department,
-    level,
     semester,
     instructions,
   } = req.body;
+  // `level` is not read from req.body — it's always the admin's own level.
 
   if (
     !type ||
@@ -253,7 +268,6 @@ const createTestExam = asyncHandler(async (req, res) => {
     !endTime ||
     !venue ||
     !department ||
-    !level ||
     !semester
   ) {
     res.status(400);
@@ -269,7 +283,7 @@ const createTestExam = asyncHandler(async (req, res) => {
     endTime,
     venue,
     department,
-    level,
+    level: req.user.adminLevel,
     semester,
     instructions,
   });
@@ -277,12 +291,11 @@ const createTestExam = asyncHandler(async (req, res) => {
   res.status(201).json({ success: true, data: item });
 });
 
-// @desc    List all tests/exams (optionally filtered)
+// @desc    List tests/exams for the logged-in admin's own level only
 // @route   GET /api/admin/tests-exams
 const getAllTestsExams = asyncHandler(async (req, res) => {
-  const filter = {};
+  const filter = { level: req.user.adminLevel };
   if (req.query.department) filter.department = req.query.department;
-  if (req.query.level) filter.level = req.query.level;
   if (req.query.semester) filter.semester = req.query.semester;
 
   const items = await TestExam.find(filter)
@@ -292,7 +305,7 @@ const getAllTestsExams = asyncHandler(async (req, res) => {
   res.json({ success: true, count: items.length, data: items });
 });
 
-// @desc    Edit a test/exam entry
+// @desc    Edit a test/exam entry (only if it belongs to the admin's own level)
 // @route   PUT /api/admin/tests-exams/:id
 const updateTestExam = asyncHandler(async (req, res) => {
   const item = await TestExam.findById(req.params.id);
@@ -302,6 +315,12 @@ const updateTestExam = asyncHandler(async (req, res) => {
     throw new Error("Test/Exam entry not found");
   }
 
+  if (item.level !== req.user.adminLevel) {
+    res.status(403);
+    throw new Error("You can only manage tests/exams for your own level");
+  }
+
+  // "level" excluded on purpose — same reasoning as timetable entries.
   const editableFields = [
     "type",
     "courseCode",
@@ -311,7 +330,6 @@ const updateTestExam = asyncHandler(async (req, res) => {
     "endTime",
     "venue",
     "department",
-    "level",
     "semester",
     "instructions",
   ];
@@ -324,7 +342,7 @@ const updateTestExam = asyncHandler(async (req, res) => {
   res.json({ success: true, data: updated });
 });
 
-// @desc    Delete a test/exam entry
+// @desc    Delete a test/exam entry (only if it belongs to the admin's own level)
 // @route   DELETE /api/admin/tests-exams/:id
 const deleteTestExam = asyncHandler(async (req, res) => {
   const item = await TestExam.findById(req.params.id);
@@ -334,18 +352,22 @@ const deleteTestExam = asyncHandler(async (req, res) => {
     throw new Error("Test/Exam entry not found");
   }
 
+  if (item.level !== req.user.adminLevel) {
+    res.status(403);
+    throw new Error("You can only manage tests/exams for your own level");
+  }
+
   await item.deleteOne();
   res.json({ success: true, message: "Test/Exam entry deleted" });
 });
 
 /* ------------------------------ HISTORY (read-only for admin) ------------------------------ */
 
-// @desc    View all history records (e.g. to audit what's been marked complete)
+// @desc    View history records for the admin's own level (audit view)
 // @route   GET /api/admin/history
 const getAllHistory = asyncHandler(async (req, res) => {
-  const filter = {};
+  const filter = { level: req.user.adminLevel };
   if (req.query.department) filter.department = req.query.department;
-  if (req.query.level) filter.level = req.query.level;
   if (req.query.semester) filter.semester = req.query.semester;
 
   const history = await History.find(filter)

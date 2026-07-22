@@ -32,6 +32,17 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // Which level (100/200/300/400) this admin manages. Only relevant when
+    // isAdmin is true — each level allows a max of 2 admin accounts, and
+    // everything that admin creates (timetable entries, tests/exams) is
+    // automatically scoped to this level.
+    adminLevel: {
+      type: Number,
+      enum: [100, 200, 300, 400],
+      required: function () {
+        return this.isAdmin === true;
+      },
+    },
     department: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Department",

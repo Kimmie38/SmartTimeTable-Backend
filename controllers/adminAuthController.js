@@ -2,35 +2,44 @@ const asyncHandler = require("express-async-handler");
 const User = require("../models/User");
 const generateToken = require("../utils/generateToken");
 
-// @desc    Register the admin
+// @desc    Register an admin
 // @route   POST /api/admin/auth/register
 // @access  Public, but locked behind ADMIN_REGISTRATION_KEY
-// Only one account on the whole system may hold admin access. If the email
-// used here already belongs to an existing (student) account, admin access
-// is added to that same account — the person logs in exactly the same way
-// as before (matric number for student screens, this same email+password
-// combo for admin screens) instead of getting a second, separate identity.
+// Admins are tied to a level (100/200/300/400). Max 2 admins per level,
+// 8 total across the system. If the email used here already belongs to an
+// existing (student) account, admin access is added to that same account.
 const registerAdmin = asyncHandler(async (req, res) => {
-  const { fullName, email, password, registrationKey } = req.body;
+  const { fullName, email, password, registrationKey, level } = req.body;
 
   if (registrationKey !== process.env.ADMIN_REGISTRATION_KEY) {
     res.status(403);
     throw new Error("Invalid admin registration key");
   }
 
-  // Only one admin account is allowed on the system. Once one exists,
-  // this route is permanently locked — even with the correct key.
-  const adminAlreadyExists = await User.findOne({ isAdmin: true });
-  if (adminAlreadyExists) {
-    res.status(403);
-    throw new Error(
-      "An admin account already exists. Only one admin account is allowed."
-    );
-  }
-
   if (!fullName || !email || !password) {
     res.status(400);
     throw new Error("Please fill in all required fields");
+  }
+
+  // Admins are tied to a level (100/200/300/400). Max 2 admin accounts per
+  // level, 8 total across the system. Everything this admin creates later
+  // (timetable entries, tests/exams) will be auto-scoped to this level.
+  const allowedLevels = [100, 200, 300, 400];
+  const numericLevel = Number(level);
+  if (!allowedLevels.includes(numericLevel)) {
+    res.status(400);
+    throw new Error(`Level must be one of: ${allowedLevels.join(", ")}`);
+  }
+
+  const adminsAtLevel = await User.countDocuments({
+    isAdmin: true,
+    adminLevel: numericLevel,
+  });
+  if (adminsAtLevel >= 2) {
+    res.status(403);
+    throw new Error(
+      `Level ${numericLevel} already has 2 admin accounts — that's the max allowed.`
+    );
   }
 
   const existingUser = await User.findOne({
@@ -51,6 +60,7 @@ const registerAdmin = asyncHandler(async (req, res) => {
     }
 
     existingUser.isAdmin = true;
+    existingUser.adminLevel = numericLevel;
     existingUser.fullName = fullName || existingUser.fullName;
     admin = await existingUser.save();
   } else {
@@ -64,6 +74,7 @@ const registerAdmin = asyncHandler(async (req, res) => {
       email,
       password,
       isAdmin: true,
+      adminLevel: numericLevel,
       matricNumber: placeholderMatric,
     });
   }
@@ -76,6 +87,7 @@ const registerAdmin = asyncHandler(async (req, res) => {
       email: admin.email,
       isStudent: admin.isStudent,
       isAdmin: admin.isAdmin,
+      adminLevel: admin.adminLevel,
       token: generateToken(admin._id),
     },
   });
@@ -119,6 +131,7 @@ const loginAdmin = asyncHandler(async (req, res) => {
       email: admin.email,
       isStudent: admin.isStudent,
       isAdmin: admin.isAdmin,
+      adminLevel: admin.adminLevel,
       token: generateToken(admin._id),
     },
   });
